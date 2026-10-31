@@ -1,0 +1,20 @@
+# Python Virtual Environment
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.env
+
+# Spark and Ivy Cache
+.ivy2/
+metastore_db/
+derby.log
+checkpoint/
+checkpoints/
+
+# System / IDE
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.log
