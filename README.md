@@ -243,6 +243,23 @@ deactivate
 
 ---
 
-## Author & Engineering Portfolio
+## 👨‍💻 Author & Maintainer
 
-Developed by **Kazi Arsalan Ajaj Ahmed** as an enterprise-grade demonstration of real-time streaming data engineering and Medallion Lakehouse design patterns.
+<p align="left">
+  <img src="https://github.com/arsalankazi.png" width="90" style="border-radius:50%;" alt="Arsalan Kazi" />
+</p>
+
+### **Kazi Arsalan Ajaj Ahmed**
+*Data Engineer & Lakehouse Architect*
+
+[![GitHub](https://img.shields.io/badge/GitHub-Profile-181717?style=flat&logo=github)](https://github.com/arsalankazi)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-0A66C2?style=flat&logo=linkedin)](https://linkedin.com/in/arsalankazi)
+[![Email](https://img.shields.io/badge/Email-Contact-D14836?style=flat&logo=gmail)](mailto:kaziarsalan810@gmail.com)
+
+---
+
+### 🎯 Core Engineering Focus
+
+- **Streaming Architecture:** Kafka Event Ingestion, Spark Structured Streaming, Stateful Processing & Event-Time Watermarking.
+- **Lakehouse Engineering:** Medallion Architecture (Bronze/Silver/Gold), Delta Lake ACID Transactions & Hive-Partitioned Storage.
+- **Distributed Systems:** Fault-Tolerant Checkpointing, Exactly-Once Semantics & S3A Object Store Integration.
