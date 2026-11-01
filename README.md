@@ -6,7 +6,7 @@
 [![Docker](https://img.shields.io/badge/Docker_Compose-LocalStack-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 [![Storage](https://img.shields.io/badge/Storage-S3_Compatible-FF9900?logo=amazons3&logoColor=white)](https://localstack.cloud/)
 
-An enterprise-grade, distributed streaming data pipeline implementing the **Medallion Architecture (Bronze → Silver → Gold)**. This system simulates a production AWS Lakehouse environment on local infrastructure, ingesting high-velocity clickstream event streams via **Apache Kafka**, performing stateful stream-stream processing and deduplication with **Apache Spark Structured Streaming**, enforcing ACID reliability using **Delta Lake**, and persisting objects in **LocalStack S3**.
+An enterprise-grade, distributed streaming data pipeline implementing the **Medallion Architecture (Bronze → Silver → Gold)**. This platform simulates a production cloud lakehouse environment on local infrastructure, ingesting clickstream streams via **Apache Kafka**, performing stateful stream processing and deduplication with **Apache Spark Structured Streaming**, enforcing ACID transactions using **Delta Lake**, and persisting objects in **LocalStack S3**.
 
 ---
 
@@ -52,6 +52,35 @@ flowchart TD
 
 ---
 
+## Security & Secrets Management (Twelve-Factor Methodology)
+
+This repository enforces industry security hygiene standards to isolate credentials, eliminate plaintext secrets, and protect repository tracking:
+
+```mermaid
+flowchart TD
+    A[Environment Configuration .env] -->|Ignored by .gitignore| B(Runtime PowerShell Orchestrators)
+    C[.env.example Sanitized Template] -->|Committed to VCS| D[Safe Open-Source Repository]
+    B --> E[Spark Master & Worker Containers]
+    B --> F[Kafka Broker & LocalStack S3 Sinks]
+
+    classDef env fill:#4a2a00,stroke:#ff9800,stroke-width:2px,color:#ffffff;
+    classDef safe fill:#0d2e13,stroke:#2e7d32,stroke-width:2px,color:#ffffff;
+    classDef runtime fill:#0d3c61,stroke:#0288d1,stroke-width:2px,color:#ffffff;
+
+    class A env;
+    class C,D safe;
+    class B,E,F runtime;
+
+    style A fill:#4a2a00,stroke:#ff9800,stroke-width:1px,color:#ffffff
+    style D fill:#0d2e13,stroke:#2e7d32,stroke-width:1px,color:#ffffff
+```
+
+- **Decoupled Configuration (`.env`):** No cloud credentials, database tokens, or endpoints are hardcoded into PySpark sources or execution scripts. Variables (`AWS_ACCESS_KEY_ID`, `S3_ENDPOINT_URL`, `LAKEHOUSE_BUCKET`) are dynamically resolved at runtime via environment variables with safe development fallbacks.
+- **Strict Version Control Exclusion (`.gitignore`):** Enforces strict exclusion rules for `.env` files, Spark checkpoint directories (`checkpoints/`), temporary Ivy cache folders (`.ivy2/`), local virtual environments (`venv/`), and raw/processed data dumps (`data/`).
+- **Scoped Permissions:** Internal container volume access avoids unrestricted permissions and enforces least-privilege directory ownership on Spark worker nodes.
+
+---
+
 ## Engineering Design & Medallion Specifications
 
 ### 1. Ingestion Layer (`src/producer.py`)
@@ -74,33 +103,33 @@ flowchart TD
 }
 ```
 
-- **Reliability:** Configured with synchronous broker acknowledgment flushes to prevent internal client buffer drops.
+- **Reliability:** Configured with synchronous broker acknowledgment flushes to prevent client buffer drops during traffic spikes.
 
 ### 2. Bronze Layer: Raw Data Ingestion (`src/streaming_bronze.py`)
 
 - **Source:** Kafka broker cluster (`kafka:29092`), topic `raw-ecommerce-events`.
-- **Processing Model:** Micro-batch processing triggered every 10 seconds.
-- **Storage Strategy:** Append-only Parquet storage partitioned chronologically to preserve raw event lineage without schema mutation.
-- **Fault Tolerance:** Dedicated checkpoint directory in S3 (`checkpoints/bronze_v1/`) recording micro-batch offsets and transaction states.
+- **Processing Model:** Micro-batch streaming triggered at 10-second intervals.
+- **Storage Strategy:** Append-only Parquet partitioned chronologically (`event_date`) to preserve immutable data lineage.
+- **Fault Tolerance:** Dedicated S3 checkpoint directory (`checkpoints/bronze_v1/`) recording micro-batch offsets and transaction states for seamless replayability.
 
 ### 3. Silver Layer: Cleansing & ACID Delta Lake (`src/streaming_silver.py`)
 
 - **Source:** Bronze S3 Parquet directory (`readStream`).
-- **Quality Controls & Schema Enforcement:** Strict schema casting from raw string payloads to structured Spark data types.
+- **Quality Controls & Schema Enforcement:** Explicit schema typing with filtering for non-null identifiers and positive prices.
 - **State Management:**
-  - **Watermarking:** Implements a 10-minute watermark (`withWatermark("timestamp", "10 minutes")`) to bound late-arriving event states.
+  - **Watermarking:** 10-minute watermark (`withWatermark("timestamp", "10 minutes")`) to bound state memory against out-of-order records.
   - **Deduplication:** Stateful `.dropDuplicates(["event_id", "timestamp"])` eliminates network retries and duplicate events.
-- **Delta Lake Storage:** Persisted directly as a Delta Lake table at `s3a://amazon-lakehouse/silver/delta_events/`, guaranteeing transaction atomicity via JSON metadata commit logs (`_delta_log/0000000000000000000X.json`).
+- **Delta Lake Storage:** Persisted to `s3a://amazon-lakehouse/silver/delta_events/` with complete ACID compliance via JSON commit logs (`_delta_log/0000000000000000000X.json`).
 
 ### 4. Gold Layer: Analytical Business Marts (`src/batch_gold.py`)
 
 - **Source:** Silver Delta Lake table (`format("delta")`).
-- **Aggregation:** Executes batch dimensional rollups by product category:
-  - **Metric 1:** Total Raw Ingested Events (`total_events`)
-  - **Metric 2:** Distinct User Engagement (`unique_users`)
-  - **Metric 3:** Gross Revenue Contribution (`total_revenue` on verified purchase events)
-  - **Metric 4:** Conversion Rate Percentage (`conversion_rate_pct = (total_purchases / total_events) * 100`)
-- **Sink:** Materialized Delta KPI table written under `mode("overwrite")` to provide idempotent refresh for BI queries.
+- **Dimensional Aggregations:** Computes category-level KPIs:
+  - `total_events`: Ingested event volume.
+  - `unique_users`: Distinct user engagement counts.
+  - `total_revenue`: Gross revenue contribution on verified purchases.
+  - `conversion_rate_pct`: Conversion efficiency `(total_purchases / total_events) * 100`.
+- **Idempotent Storage:** Written using `mode("overwrite")` to guarantee idempotent refreshes for downstream reporting engines.
 
 ---
 
@@ -113,8 +142,8 @@ flowchart TD
 | **Processing Engine** | Apache Spark | 3.5.0 (PySpark on OpenJDK 11) |
 | **Table Storage Format** | Delta Lake Core | 3.1.0 (`io.delta:delta-spark_2.12:3.1.0`) |
 | **Object Storage** | LocalStack S3 | Local AWS S3 Mock (`http://localhost:4566`, S3A API) |
-| **Connectors & JARS** | Hadoop AWS & SDK | `hadoop-aws:3.3.4`, `aws-java-sdk-bundle:1.12.262` |
-| **Containerization** | Docker Engine & Compose | Multi-tier bridge network (`bridge-net`) |
+| **Connectors & JARs** | Hadoop AWS & SDK | `hadoop-aws:3.3.4`, `aws-java-sdk-bundle:1.12.262` |
+| **Containerization** | Docker Engine & Compose | Multi-tier bridge network |
 | **Scripting & Tooling** | Python & PowerShell | Python 3.10+, PowerShell 7+ |
 
 ---
@@ -125,6 +154,8 @@ flowchart TD
 amazon-lakehouse-pipeline/
 ├── docker-compose.yml          # Container topology (Zookeeper, Kafka, Spark, LocalStack)
 ├── requirements.txt            # Python dependencies (boto3, kafka-python-ng, faker, delta-spark)
+├── .env.example                # Sanitized environment template for public version control
+├── .gitignore                  # Exclusion rules for secrets, checkpoints, logs, and datasets
 ├── src/
 │   ├── producer.py             # Event generation & Kafka stream producer
 │   ├── streaming_bronze.py     # Bronze ingestion streaming job
@@ -144,21 +175,25 @@ amazon-lakehouse-pipeline/
 
 ### Prerequisites
 
-- Docker Desktop installed with WSL 2 backend enabled.
+- Docker Desktop running with WSL 2 backend enabled.
 - Python 3.10+ installed.
 - PowerShell 5.1+ or PowerShell 7+.
 
-### 1. Environment Preparation
+### 1. Environment & Secrets Setup
 
 ```powershell
+# Clone and enter the project directory
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+
+# Create your local environment configuration from template
+Copy-Item .env.example .env
 ```
 
 ### 2. Infrastructure Deployment
 
-Execute the orchestration script to provision containers, initialize S3 buckets, create Kafka topics, and resolve container file system permissions:
+Provisions Docker containers, initializes the LocalStack S3 bucket, creates the Kafka topic, and sets required Spark permissions:
 
 ```powershell
 .\scripts\setup_infra.ps1
@@ -200,7 +235,7 @@ python src/producer.py
 
 ## Production Validation & Metric Telemetry
 
-During verification, the pipeline processed **1,433 streaming events** end-to-end without record drop, producing the following analytical output in the Gold layer:
+During verification, the pipeline processed streaming events end-to-end without record drop, producing the following analytical output in the Gold layer:
 
 ```text
 >>> Total records loaded from Silver Delta Lake: 1433
@@ -219,9 +254,9 @@ During verification, the pipeline processed **1,433 streaming events** end-to-en
 
 ---
 
-## Transaction Log Verification
+## ACID Transaction Log Verification
 
-ACID transaction commits verified via LocalStack S3 metadata inspection:
+Transactional atomicity and state logs confirmed via LocalStack S3 metadata inspection:
 
 - `silver/delta_events/_delta_log/00000000000000000000.json`
 - `silver/delta_events/_delta_log/00000000000000000001.json`

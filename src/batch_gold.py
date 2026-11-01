@@ -2,7 +2,13 @@ import os
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, count, sum as _sum, round as _round, countDistinct, when
 
-# 1. Delta & S3 Packages
+# 1. Decoupled Environment Configurations
+AWS_KEY = os.getenv("AWS_ACCESS_KEY_ID", "test")
+AWS_SECRET = os.getenv("AWS_SECRET_ACCESS_KEY", "test")
+S3_ENDPOINT = os.getenv("S3_ENDPOINT_URL", "http://localstack-s3:4566")
+LAKEHOUSE_BUCKET = os.getenv("LAKEHOUSE_BUCKET", "amazon-lakehouse")
+
+# 2. Delta & S3 Packages
 os.environ['PYSPARK_SUBMIT_ARGS'] = (
     '--packages org.apache.hadoop:hadoop-aws:3.3.4,'
     'com.amazonaws:aws-java-sdk-bundle:1.12.262,'
@@ -10,15 +16,15 @@ os.environ['PYSPARK_SUBMIT_ARGS'] = (
     'pyspark-shell'
 )
 
-# 2. Spark Session
+# 3. Spark Session with Parameterized Delta & S3A Security
 spark = SparkSession.builder \
     .appName("Amazon-Lakehouse-Gold-Aggregation") \
     .master("local[*]") \
     .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
-    .config("spark.hadoop.fs.s3a.endpoint", "http://localstack-s3:4566") \
-    .config("spark.hadoop.fs.s3a.access.key", "test") \
-    .config("spark.hadoop.fs.s3a.secret.key", "test") \
+    .config("spark.hadoop.fs.s3a.endpoint", S3_ENDPOINT) \
+    .config("spark.hadoop.fs.s3a.access.key", AWS_KEY) \
+    .config("spark.hadoop.fs.s3a.secret.key", AWS_SECRET) \
     .config("spark.hadoop.fs.s3a.path.style.access", "true") \
     .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
     .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false") \
@@ -28,13 +34,13 @@ spark = SparkSession.builder \
 spark.sparkContext.setLogLevel("WARN")
 print(">>> Gold Analytics Engine Initialized! Reading from Silver Delta...")
 
-# 3. Read Directly From Delta Table
-silver_delta_path = "s3a://amazon-lakehouse/silver/delta_events/"
+# 4. Read Directly From Delta Table
+silver_delta_path = f"s3a://{LAKEHOUSE_BUCKET}/silver/delta_events/"
 silver_df = spark.read.format("delta").load(silver_delta_path)
 
 print(f">>> Total records loaded from Silver Delta Lake: {silver_df.count()}")
 
-# 4. Aggregation 1: Category-wise Revenue & Conversion Metrics
+# 5. Aggregation: Category-wise Revenue & Conversion Metrics
 gold_category_metrics = silver_df.groupBy("category") \
     .agg(
         count("event_id").alias("total_events"),
@@ -50,8 +56,8 @@ gold_category_metrics = silver_df.groupBy("category") \
 print(">>> Category Metrics Preview:")
 gold_category_metrics.show(truncate=False)
 
-# 5. Write to Gold Layer
-gold_output_path = "s3a://amazon-lakehouse/gold/category_metrics/"
+# 6. Write to Gold Layer
+gold_output_path = f"s3a://{LAKEHOUSE_BUCKET}/gold/category_metrics/"
 gold_category_metrics.write \
     .format("delta") \
     .mode("overwrite") \

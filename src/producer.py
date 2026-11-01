@@ -1,3 +1,4 @@
+import os
 import json
 import time
 import random
@@ -7,18 +8,19 @@ from faker import Faker
 
 fake = Faker()
 
-# Kafka Producer Configuration (Host machine connects to localhost:9092)
+# Decoupled Configuration via Environment Variables
+KAFKA_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092").split(",")
+TOPIC_NAME = os.getenv("KAFKA_TOPIC_NAME", "raw-ecommerce-events")
+
 producer = KafkaProducer(
-    bootstrap_servers=['localhost:9092'],
+    bootstrap_servers=KAFKA_SERVERS,
     value_serializer=lambda v: json.dumps(v).encode('utf-8')
 )
 
-# Sahi topic name jo Bronze stream listen kar rahi hai
-TOPIC_NAME = 'raw-ecommerce-events'
 EVENT_TYPES = ['view_item', 'add_to_cart', 'remove_from_cart', 'purchase']
 DEVICE_TYPES = ['iOS', 'Android', 'Web']
 
-print(f" Streaming Clickstream Events to Kafka Topic: '{TOPIC_NAME}'")
+print(f"Streaming Clickstream Events to Kafka Topic: '{TOPIC_NAME}' via {KAFKA_SERVERS}")
 
 try:
     while True:
@@ -35,17 +37,14 @@ try:
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
-        # Message send karke turant broker me commit/flush karo
         producer.send(TOPIC_NAME, value=event)
         producer.flush()
         
         print(f"Sent: {event['event_type']} by {event['user_id']} | Price: ${event['price']}")
-        
-        # Real-time traffic simulation (0.2s - 0.5s pause)
         time.sleep(random.uniform(0.2, 0.5))
 
 except KeyboardInterrupt:
-    print("\n Producer stopped.")
+    print("\nProducer stopped.")
 finally:
     producer.flush()
     producer.close()
